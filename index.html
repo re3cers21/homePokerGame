@@ -189,6 +189,7 @@
   .level-table th { text-align:center; color:var(--gold); font-weight:600; padding:4px; font-size:0.55rem; letter-spacing:0.1em; border-bottom:1px solid rgba(212,168,67,0.2); }
   .level-table td { padding:3px; text-align:center; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -284,6 +285,9 @@
 </div>
 
 <script>
+// ─── SUPABASE ───
+const _sb=window.supabase.createClient('https://lpyjyylbrqwfzftbjbqy.supabase.co','eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxweWp5eWxicnF3ZnpmdGJqYnF5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc4MjY5NzksImV4cCI6MjA5MzQwMjk3OX0.e14V2LR-ODglPcAAN-eEKWb1s5S8bjxD3TMtKNogXx8');
+
 // ─── DATA ───
 const DEFAULT_LEVELS = [
   {sb:25,bb:50,mins:15},{sb:50,bb:100,mins:15},{sb:75,bb:150,mins:15},{sb:100,bb:200,mins:15},
@@ -340,7 +344,8 @@ async function hostRoom(){
   const name=document.getElementById('playerNameInput').value.trim()||"Host";
   const code=genCode();
   const initial={levels:DEFAULT_LEVELS,currentLevelIdx:0,levelDuration:DEFAULT_LEVELS[0].mins*60,remaining:DEFAULT_LEVELS[0].mins*60,isRunning:false,finished:false,startedAt:null,warnTime:30};
-  try{await window.storage.set(`poker-room:${code}`,JSON.stringify(initial),true);}catch(e){lobbyError("Failed to create room");return;}
+  const {error}=await _sb.from('poker_rooms').insert({code,game_state:initial,players:[]});
+  if(error){lobbyError("Failed to create room");return;}
   roomCode=code;isHost=true;playerName=name;
   enterRoom();
 }
@@ -348,17 +353,16 @@ async function hostRoom(){
 async function joinRoom(){
   const code=document.getElementById('joinCodeInput').value.trim().toUpperCase();
   if(!code){lobbyError("Enter a room code");return;}
-  try{const r=await window.storage.get(`poker-room:${code}`,true);if(!r)throw 0;
-  }catch(e){lobbyError("Room not found. Check the code.");return;}
+  const {data,error}=await _sb.from('poker_rooms').select('code').eq('code',code).maybeSingle();
+  if(error||!data){lobbyError("Room not found. Check the code.");return;}
   roomCode=code;isHost=false;playerName=document.getElementById('playerNameInput').value.trim()||"Player";
   enterRoom();
 }
 
 async function enterRoom(){
-  // register player
-  try{const pk=`poker-players:${roomCode}`;let ex=[];try{const r=await window.storage.get(pk,true);if(r)ex=JSON.parse(r.value);}catch(e){}
-  ex=ex.filter(p=>p.name!==playerName);ex.push({name:playerName,joinedAt:Date.now()});
-  await window.storage.set(pk,JSON.stringify(ex),true);}catch(e){}
+  try{const {data}=await _sb.from('poker_rooms').select('players').eq('code',roomCode).single();
+  let pl=data?data.players:[];pl=pl.filter(p=>p.name!==playerName);pl.push({name:playerName,joinedAt:Date.now()});
+  await _sb.from('poker_rooms').update({players:pl}).eq('code',roomCode);}catch(e){}
   document.getElementById('roomCodeDisplay').textContent=roomCode;
   document.getElementById('hostControls').style.display=isHost?'flex':'none';
   document.getElementById('guestMsg').style.display=isHost?'none':'block';
@@ -370,9 +374,10 @@ async function enterRoom(){
 
 // ─── POLL ───
 async function pollState(){
-  try{const r=await window.storage.get(`poker-room:${roomCode}`,true);if(r){gameState=JSON.parse(r.value);updateTimerUI();}
-  const pr=await window.storage.get(`poker-players:${roomCode}`,true);if(pr){const pl=JSON.parse(pr.value);document.getElementById('playerCount').textContent=pl.length+' joined';document.getElementById('playersInfo').textContent=pl.map(p=>p.name).join(' · ');}
-  }catch(e){}}
+  try{const {data}=await _sb.from('poker_rooms').select('game_state,players').eq('code',roomCode).single();
+  if(data){gameState=data.game_state;updateTimerUI();
+  const pl=data.players||[];document.getElementById('playerCount').textContent=pl.length+' joined';document.getElementById('playersInfo').textContent=pl.map(p=>p.name).join(' · ');}}
+  catch(e){}}
 
 function updateTimerUI(){
   if(!gameState)return;
@@ -408,8 +413,9 @@ function updateTimerUI(){
 
 // ─── HOST CONTROLS ───
 async function writeState(fn){
-  try{const r=await window.storage.get(`poker-room:${roomCode}`,true);if(!r)return;const d=JSON.parse(r.value);fn(d);
-  await window.storage.set(`poker-room:${roomCode}`,JSON.stringify(d),true);gameState=d;updateTimerUI();}catch(e){}}
+  try{const {data,error}=await _sb.from('poker_rooms').select('game_state').eq('code',roomCode).single();
+  if(error||!data)return;const d=data.game_state;fn(d);
+  await _sb.from('poker_rooms').update({game_state:d}).eq('code',roomCode);gameState=d;updateTimerUI();}catch(e){}}
 
 function toggleTimer(){ensureAudio();writeState(d=>{
   if(d.isRunning){d.isRunning=false;d.remaining=Math.max(0,d.levelDuration-Math.floor((Date.now()-d.startedAt)/1000));}
@@ -421,12 +427,13 @@ function toggleTimer(){ensureAudio();writeState(d=>{
 }
 
 async function hostTick(){
-  try{const r=await window.storage.get(`poker-room:${roomCode}`,true);if(!r)return;const d=JSON.parse(r.value);if(!d.isRunning)return;
+  try{const {data,error}=await _sb.from('poker_rooms').select('game_state').eq('code',roomCode).single();
+  if(error||!data)return;const d=data.game_state;if(!d.isRunning)return;
   const el=Math.floor((Date.now()-d.startedAt)/1000);const rem=d.levelDuration-el;
   if(rem<=0){const ni=d.currentLevelIdx+1;if(ni>=d.levels.length){d.isRunning=false;d.remaining=0;d.finished=true;}
   else{d.currentLevelIdx=ni;d.levelDuration=d.levels[ni].mins*60;d.startedAt=Date.now();d.remaining=d.levelDuration;}}
   else{d.remaining=rem;if(rem===d.warnTime)beep(600,150,0.3);if(rem===10&&d.warnTime>10)beep(800,100,0.3);}
-  await window.storage.set(`poker-room:${roomCode}`,JSON.stringify(d),true);gameState=d;updateTimerUI();
+  await _sb.from('poker_rooms').update({game_state:d}).eq('code',roomCode);gameState=d;updateTimerUI();
   if(d.finished||!d.isRunning)clearInterval(tickInterval);
   }catch(e){}}
 
