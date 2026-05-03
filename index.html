@@ -41,7 +41,7 @@
   .input:focus { border-color:var(--gold); }
   .input-sm { font-family:'JetBrains Mono',monospace; font-size:0.8rem; font-weight:600; background:rgba(0,0,0,0.4); border:1.5px solid rgba(212,168,67,0.3); color:var(--white); border-radius:7px; padding:7px 6px; text-align:center; outline:none; width:60px; }
 
-  .btn { font-family:'JetBrains Mono',monospace; font-size:0.72rem; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; border:2px solid var(--gold-dim); background:rgba(0,0,0,0.3); color:var(--gold); padding:10px 20px; border-radius:8px; cursor:pointer; transition:all 0.2s; }
+  .btn { font-family:'JetBrains Mono',monospace; font-size:0.72rem; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; border:2px solid var(--gold-dim); background:rgba(0,0,0,0.3); color:var(--gold); padding:10px 20px; border-radius:8px; cursor:pointer; transition:all 0.2s; touch-action:manipulation; }
   .btn:hover { background:var(--gold-dim); color:var(--dark); }
   .btn:active { transform:scale(0.96); }
   .btn-primary { background:var(--gold); color:var(--dark); border-color:var(--gold); font-size:0.8rem; padding:12px 28px; }
@@ -317,7 +317,7 @@ const SUIT_MAP = {
 
 // ─── STATE ───
 let roomCode="", isHost=false, playerName="", gameState=null;
-let pollInterval=null, tickInterval=null, prevLevelIdx=null;
+let pollInterval=null, tickInterval=null, displayInterval=null, prevLevelIdx=null;
 let editLevels=[];
 const C=2*Math.PI*88;
 const ring=document.getElementById('ringFg');
@@ -331,6 +331,8 @@ function fanfare(){[523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,400,0
 
 function fmt(s){if(s<0)s=0;return `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`;}
 function genCode(){const c="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";let r="";for(let i=0;i<5;i++)r+=c[Math.floor(Math.random()*c.length)];return r;}
+
+function startDisplayTick(){clearInterval(displayInterval);displayInterval=setInterval(()=>{if(gameState&&gameState.isRunning)updateTimerUI();},200);}
 
 // ─── VIEWS ───
 function showView(id){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));document.getElementById(id).classList.add('active');
@@ -368,6 +370,7 @@ async function enterRoom(){
   document.getElementById('guestMsg').style.display=isHost?'none':'block';
   showView('timerView');
   buildDrawer();
+  startDisplayTick();
   pollState();
   pollInterval=setInterval(pollState,2000);
 }
@@ -413,27 +416,27 @@ function updateTimerUI(){
 
 // ─── HOST CONTROLS ───
 async function writeState(fn){
-  try{const {data,error}=await _sb.from('poker_rooms').select('game_state').eq('code',roomCode).single();
-  if(error||!data)return;const d=data.game_state;fn(d);
-  await _sb.from('poker_rooms').update({game_state:d}).eq('code',roomCode);gameState=d;updateTimerUI();}catch(e){}}
+  try{if(!gameState)return;const d=JSON.parse(JSON.stringify(gameState));fn(d);
+  gameState=d;updateTimerUI();
+  await _sb.from('poker_rooms').update({game_state:d}).eq('code',roomCode);}catch(e){}}
 
-function toggleTimer(){ensureAudio();writeState(d=>{
-  if(d.isRunning){d.isRunning=false;d.remaining=Math.max(0,d.levelDuration-Math.floor((Date.now()-d.startedAt)/1000));}
-  else{d.isRunning=true;d.startedAt=Date.now();d.levelDuration=d.remaining;d.finished=false;}
-});
-  // start/stop local tick
+function toggleTimer(){ensureAudio();
+  const willRun=gameState&&!gameState.isRunning;
+  writeState(d=>{
+    if(d.isRunning){d.isRunning=false;d.remaining=Math.max(0,d.levelDuration-Math.floor((Date.now()-d.startedAt)/1000));}
+    else{d.isRunning=true;d.startedAt=Date.now();d.levelDuration=d.remaining;d.finished=false;}
+  });
   clearInterval(tickInterval);
-  if(gameState&&gameState.isRunning){tickInterval=setInterval(hostTick,1000);}
+  if(willRun){tickInterval=setInterval(hostTick,1000);}
 }
 
 async function hostTick(){
-  try{const {data,error}=await _sb.from('poker_rooms').select('game_state').eq('code',roomCode).single();
-  if(error||!data)return;const d=data.game_state;if(!d.isRunning)return;
+  try{if(!gameState||!gameState.isRunning)return;const d=JSON.parse(JSON.stringify(gameState));
   const el=Math.floor((Date.now()-d.startedAt)/1000);const rem=d.levelDuration-el;
   if(rem<=0){const ni=d.currentLevelIdx+1;if(ni>=d.levels.length){d.isRunning=false;d.remaining=0;d.finished=true;}
   else{d.currentLevelIdx=ni;d.levelDuration=d.levels[ni].mins*60;d.startedAt=Date.now();d.remaining=d.levelDuration;}}
   else{d.remaining=rem;if(rem===d.warnTime)beep(600,150,0.3);if(rem===10&&d.warnTime>10)beep(800,100,0.3);}
-  await _sb.from('poker_rooms').update({game_state:d}).eq('code',roomCode);gameState=d;updateTimerUI();
+  await _sb.from('poker_rooms').update({game_state:d}).eq('code',roomCode);gameState=d;
   if(d.finished||!d.isRunning)clearInterval(tickInterval);
   }catch(e){}}
 
@@ -496,16 +499,17 @@ function closeDrawer(){
   setTimeout(()=>{document.getElementById('drawerTab').style.display='block';},400);
 }
 
-// Touch swipe support for drawer
-let touchStartX=0,touchCurrentX=0,dragging=false;
-document.getElementById('drawerPanel').addEventListener('touchstart',e=>{touchStartX=e.touches[0].clientX;dragging=true;},{passive:true});
-document.getElementById('drawerPanel').addEventListener('touchmove',e=>{if(!dragging)return;touchCurrentX=e.touches[0].clientX;const dx=touchCurrentX-touchStartX;if(dx>0)document.getElementById('drawerPanel').style.transform=`translateX(${dx}px)`;},{passive:true});
-document.getElementById('drawerPanel').addEventListener('touchend',()=>{if(!dragging)return;dragging=false;const dx=touchCurrentX-touchStartX;document.getElementById('drawerPanel').style.transform='';if(dx>80)closeDrawer();});
+// Touch swipe — close by dragging panel right
+let panelDragStartX=0,panelDragCurrentX=0,panelDragging=false;
+document.getElementById('drawerPanel').addEventListener('touchstart',e=>{panelDragStartX=e.touches[0].clientX;panelDragCurrentX=panelDragStartX;panelDragging=true;},{passive:true});
+document.getElementById('drawerPanel').addEventListener('touchmove',e=>{if(!panelDragging)return;panelDragCurrentX=e.touches[0].clientX;const dx=panelDragCurrentX-panelDragStartX;if(dx>0)document.getElementById('drawerPanel').style.transform=`translateX(${dx}px)`;},{passive:true});
+document.getElementById('drawerPanel').addEventListener('touchend',()=>{if(!panelDragging)return;panelDragging=false;const dx=panelDragCurrentX-panelDragStartX;document.getElementById('drawerPanel').style.transform='';if(dx>80)closeDrawer();});
 
-// Edge swipe to open
-document.addEventListener('touchstart',e=>{if(drawerOpen)return;const x=e.touches[0].clientX;if(x>window.innerWidth-30){touchStartX=x;dragging=true;}},{passive:true});
-document.addEventListener('touchmove',e=>{if(!dragging||drawerOpen)return;touchCurrentX=e.touches[0].clientX;},{passive:true});
-document.addEventListener('touchend',()=>{if(drawerOpen||!dragging)return;dragging=false;const dx=touchStartX-touchCurrentX;if(dx>60&&document.getElementById('timerView').classList.contains('active'))openDrawer();});
+// Touch swipe — open by swiping in from right edge
+let edgeDragStartX=0,edgeDragCurrentX=0,edgeDragging=false;
+document.addEventListener('touchstart',e=>{if(drawerOpen)return;const x=e.touches[0].clientX;if(x>window.innerWidth-50){edgeDragStartX=x;edgeDragCurrentX=x;edgeDragging=true;}},{passive:true});
+document.addEventListener('touchmove',e=>{if(!edgeDragging||drawerOpen)return;edgeDragCurrentX=e.touches[0].clientX;},{passive:true});
+document.addEventListener('touchend',()=>{if(!edgeDragging)return;edgeDragging=false;const dx=edgeDragStartX-edgeDragCurrentX;if(dx>50&&document.getElementById('timerView').classList.contains('active'))openDrawer();});
 </script>
 </body>
 </html>
