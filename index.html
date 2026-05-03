@@ -272,7 +272,7 @@
 </div>
 
 <!-- HAND RANKINGS DRAWER -->
-<div class="drawer-tab" id="drawerTab" onclick="openDrawer()" style="display:none">
+<div class="drawer-tab" id="drawerTab" style="display:none">
   <span class="tab-icon">🃏</span>HANDS
 </div>
 <div class="drawer-backdrop" id="drawerBackdrop" onclick="closeDrawer()"></div>
@@ -485,31 +485,39 @@ function buildDrawer(){
 
 function openDrawer(){
   drawerOpen=true;
-  document.getElementById('drawerBackdrop').classList.add('open');
-  document.getElementById('drawerPanel').classList.add('open');
+  const p=document.getElementById('drawerPanel'),b=document.getElementById('drawerBackdrop');
+  p.style.transition='';p.style.transform='';b.style.transition='';b.style.opacity='';b.style.pointerEvents='';
+  b.classList.add('open');p.classList.add('open');
   document.getElementById('drawerTab').style.display='none';
-  // stagger animate rows
   setTimeout(()=>{document.querySelectorAll('.hand-row').forEach(r=>r.classList.add('show'));},50);
 }
 function closeDrawer(){
   drawerOpen=false;
   document.querySelectorAll('.hand-row').forEach(r=>r.classList.remove('show'));
-  document.getElementById('drawerPanel').classList.remove('open');
+  const p=document.getElementById('drawerPanel');
+  p.style.transform='';p.classList.remove('open');
   document.getElementById('drawerBackdrop').classList.remove('open');
   setTimeout(()=>{document.getElementById('drawerTab').style.display='block';},400);
 }
 
-// Touch swipe — close by dragging panel right
-let panelDragStartX=0,panelDragCurrentX=0,panelDragging=false;
-document.getElementById('drawerPanel').addEventListener('touchstart',e=>{panelDragStartX=e.touches[0].clientX;panelDragCurrentX=panelDragStartX;panelDragging=true;},{passive:true});
-document.getElementById('drawerPanel').addEventListener('touchmove',e=>{if(!panelDragging)return;panelDragCurrentX=e.touches[0].clientX;const dx=panelDragCurrentX-panelDragStartX;if(dx>0)document.getElementById('drawerPanel').style.transform=`translateX(${dx}px)`;},{passive:true});
-document.getElementById('drawerPanel').addEventListener('touchend',()=>{if(!panelDragging)return;panelDragging=false;const dx=panelDragCurrentX-panelDragStartX;document.getElementById('drawerPanel').style.transform='';if(dx>80)closeDrawer();});
+// ── DRAG TAB TO OPEN ──
+const _tab=document.getElementById('drawerTab'),_panel=document.getElementById('drawerPanel'),_bd=document.getElementById('drawerBackdrop');
+let tabDragSX=0,tabDragCX=0,tabDragging=false;
+function _tdStart(cx){if(drawerOpen)return;tabDragSX=cx;tabDragCX=cx;tabDragging=true;_panel.style.transition='none';_bd.style.transition='none';_bd.style.pointerEvents='auto';}
+function _tdMove(cx){if(!tabDragging)return;tabDragCX=cx;const dx=tabDragSX-cx;if(dx<0)return;const w=_panel.offsetWidth;_panel.style.transform=`translateX(${Math.max(0,w-dx)}px)`;_bd.style.opacity=Math.min(1,dx/w);}
+function _tdEnd(){if(!tabDragging)return;tabDragging=false;const dx=tabDragSX-tabDragCX,w=_panel.offsetWidth;if(dx<=10||dx>w*0.25){openDrawer();}else{_panel.style.transition='';_panel.style.transform='';_bd.style.transition='';_bd.style.opacity='';_bd.style.pointerEvents='';}}
+_tab.addEventListener('touchstart',e=>_tdStart(e.touches[0].clientX),{passive:true});
+document.addEventListener('touchmove',e=>{if(tabDragging)_tdMove(e.touches[0].clientX);},{passive:true});
+document.addEventListener('touchend',()=>{if(tabDragging)_tdEnd();});
+_tab.addEventListener('mousedown',e=>{_tdStart(e.clientX);e.preventDefault();});
+document.addEventListener('mousemove',e=>{if(tabDragging)_tdMove(e.clientX);});
+document.addEventListener('mouseup',()=>{if(tabDragging)_tdEnd();});
 
-// Touch swipe — open by swiping in from right edge
-let edgeDragStartX=0,edgeDragCurrentX=0,edgeDragging=false;
-document.addEventListener('touchstart',e=>{if(drawerOpen)return;const x=e.touches[0].clientX;if(x>window.innerWidth-50){edgeDragStartX=x;edgeDragCurrentX=x;edgeDragging=true;}},{passive:true});
-document.addEventListener('touchmove',e=>{if(!edgeDragging||drawerOpen)return;edgeDragCurrentX=e.touches[0].clientX;},{passive:true});
-document.addEventListener('touchend',()=>{if(!edgeDragging)return;edgeDragging=false;const dx=edgeDragStartX-edgeDragCurrentX;if(dx>50&&document.getElementById('timerView').classList.contains('active'))openDrawer();});
+// ── DRAG PANEL TO CLOSE ──
+let panelDragSX=0,panelDragCX=0,panelDragging=false;
+_panel.addEventListener('touchstart',e=>{panelDragSX=e.touches[0].clientX;panelDragCX=panelDragSX;panelDragging=true;},{passive:true});
+_panel.addEventListener('touchmove',e=>{if(!panelDragging)return;panelDragCX=e.touches[0].clientX;const dx=panelDragCX-panelDragSX;if(dx>0)_panel.style.transform=`translateX(${dx}px)`;},{passive:true});
+_panel.addEventListener('touchend',()=>{if(!panelDragging)return;panelDragging=false;const dx=panelDragCX-panelDragSX;_panel.style.transform='';if(dx>80)closeDrawer();});
 </script>
 </body>
 </html>
