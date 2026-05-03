@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Poker Night — Blind Timer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=JetBrains+Mono:wght@400;600;700&family=Cormorant+Garamond:wght@400;600;700&display=swap');
+
+  :root {
+    --felt: #0b7a40; --felt-dark: #064d28; --felt-deep: #042e18;
+    --gold: #d4a843; --gold-bright: #f0c95c; --gold-dim: #8a6a2a;
+    --red: #bf3636; --white: #f5f0e8; --cream: #ddd4c2; --dark: #0e0e0e;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+    background: var(--dark); color: var(--white);
+    min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    overflow-x: hidden; user-select: none;
+  }
+  .bg { position:fixed; inset:0; z-index:0; background: radial-gradient(ellipse at 50% 40%, var(--felt) 0%, var(--felt-dark) 50%, var(--felt-deep) 100%); }
+  .bg::after { content:''; position:absolute; inset:0; background: radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(0,0,0,0.45) 100%); }
+  .rail { position:fixed; inset:8px; z-index:1; border:3px solid var(--gold-dim); border-radius:24px; box-shadow: inset 0 0 30px rgba(0,0,0,0.3), 0 0 15px rgba(212,168,67,0.15); pointer-events:none; }
+  .container { position:relative; z-index:2; display:flex; flex-direction:column; align-items:center; gap:10px; width:100%; max-width:520px; padding:24px 20px 40px; }
+
+  .view { display:none; width:100%; flex-direction:column; align-items:center; gap:10px; }
+  .view.active { display:flex; }
+
+  .title { font-family:'Playfair Display',serif; font-weight:900; font-size:clamp(1.3rem,4vw,1.8rem); letter-spacing:0.15em; color:var(--gold); text-shadow:0 2px 8px rgba(0,0,0,0.5); text-transform:uppercase; }
+  .subtitle { font-family:'JetBrains Mono',monospace; font-size:0.7rem; letter-spacing:0.2em; color:var(--cream); opacity:0.6; text-transform:uppercase; }
+  .label { font-family:'JetBrains Mono',monospace; font-size:0.62rem; letter-spacing:0.35em; text-transform:uppercase; color:var(--cream); opacity:0.55; }
+  .mono { font-family:'JetBrains Mono',monospace; }
+
+  .card-box { background:rgba(0,0,0,0.35); border:2px solid var(--gold-dim); border-radius:16px; padding:20px 28px; width:100%; box-shadow:inset 0 2px 12px rgba(0,0,0,0.3); text-align:center; }
+  .blinds-value { font-family:'JetBrains Mono',monospace; font-weight:700; font-size:clamp(2rem,8vw,3.4rem); color:var(--white); text-shadow:0 0 20px rgba(255,255,255,0.15); line-height:1; }
+  .blinds-value .sep { color:var(--gold); margin:0 6px; font-weight:400; }
+
+  .input { font-family:'JetBrains Mono',monospace; font-size:1.1rem; font-weight:700; background:rgba(0,0,0,0.4); border:2px solid rgba(212,168,67,0.35); color:var(--white); border-radius:10px; padding:12px 16px; text-align:center; outline:none; width:100%; letter-spacing:0.15em; }
+  .input:focus { border-color:var(--gold); }
+  .input-sm { font-family:'JetBrains Mono',monospace; font-size:0.8rem; font-weight:600; background:rgba(0,0,0,0.4); border:1.5px solid rgba(212,168,67,0.3); color:var(--white); border-radius:7px; padding:7px 6px; text-align:center; outline:none; width:60px; }
+
+  .btn { font-family:'JetBrains Mono',monospace; font-size:0.72rem; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; border:2px solid var(--gold-dim); background:rgba(0,0,0,0.3); color:var(--gold); padding:10px 20px; border-radius:8px; cursor:pointer; transition:all 0.2s; }
+  .btn:hover { background:var(--gold-dim); color:var(--dark); }
+  .btn:active { transform:scale(0.96); }
+  .btn-primary { background:var(--gold); color:var(--dark); border-color:var(--gold); font-size:0.8rem; padding:12px 28px; }
+  .btn-primary:hover { background:var(--gold-bright); }
+  .btn-danger { border-color:var(--red); color:var(--red); }
+  .btn-danger:hover { background:var(--red); color:var(--white); }
+  .btn-sm { font-size:0.55rem; padding:3px 6px; border-radius:4px; }
+
+  .controls { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-top:6px; }
+
+  .timer-wrap { position:relative; width:clamp(160px,40vw,220px); height:clamp(160px,40vw,220px); margin:6px 0; }
+  .timer-ring { width:100%; height:100%; transform:rotate(-90deg); }
+  .ring-bg { fill:none; stroke:rgba(255,255,255,0.08); stroke-width:6; }
+  .ring-fg { fill:none; stroke:var(--gold); stroke-width:6; stroke-linecap:round; transition: stroke-dashoffset 1s linear, stroke 0.5s ease; filter:drop-shadow(0 0 6px rgba(212,168,67,0.4)); }
+  .ring-fg.warning { stroke:var(--red); filter:drop-shadow(0 0 10px rgba(191,54,54,0.6)); }
+  .timer-text { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-family:'JetBrains Mono',monospace; font-weight:700; font-size:clamp(2rem,7vw,2.8rem); text-shadow:0 2px 10px rgba(0,0,0,0.5); }
+
+  .next-hint { font-family:'JetBrains Mono',monospace; font-size:0.68rem; color:var(--cream); opacity:0.5; text-align:center; }
+  .room-badge { display:flex; align-items:center; gap:12px; background:rgba(0,0,0,0.3); border:1.5px solid rgba(212,168,67,0.25); border-radius:10px; padding:8px 18px; }
+  .room-code { font-family:'JetBrains Mono',monospace; font-size:1.1rem; font-weight:700; color:var(--gold-bright); letter-spacing:0.25em; }
+
+  .sched-toggle { background:none; border:none; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--cream); opacity:0.5; cursor:pointer; letter-spacing:0.15em; text-transform:uppercase; }
+  .sched-toggle:hover { opacity:0.9; }
+  .sched-table { width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:0.63rem; }
+  .sched-table th { text-align:left; color:var(--gold); padding:3px 6px; font-size:0.55rem; letter-spacing:0.1em; border-bottom:1px solid rgba(212,168,67,0.2); }
+  .sched-table td { padding:4px 6px; color:var(--cream); }
+
+  .break-pulse { animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+
+  .flash { position:fixed; inset:0; z-index:100; background:var(--gold); opacity:0; pointer-events:none; transition:opacity 0.15s; }
+  .flash.active { opacity:0.2; }
+
+  .players-info { font-family:'JetBrains Mono',monospace; font-size:0.58rem; color:var(--cream); opacity:0.35; }
+
+  /* ═══ HAND RANKINGS DRAWER ═══ */
+  .drawer-tab {
+    position:fixed; right:0; top:50%; z-index:150;
+    transform:translateY(-50%);
+    writing-mode:vertical-rl; text-orientation:mixed;
+    font-family:'JetBrains Mono',monospace; font-size:0.6rem; font-weight:700;
+    letter-spacing:0.2em; text-transform:uppercase;
+    color:var(--gold); background:rgba(0,0,0,0.5);
+    border:2px solid var(--gold-dim); border-right:none;
+    border-radius:10px 0 0 10px;
+    padding:16px 8px; cursor:pointer;
+    transition:all 0.3s ease;
+    box-shadow:-2px 0 12px rgba(0,0,0,0.3);
+  }
+  .drawer-tab:hover { background:rgba(212,168,67,0.15); padding-right:12px; }
+  .drawer-tab .tab-icon { display:block; margin-bottom:6px; writing-mode:horizontal-tb; font-size:1rem; }
+
+  .drawer-backdrop {
+    position:fixed; inset:0; z-index:160;
+    background:rgba(0,0,0,0.5);
+    opacity:0; pointer-events:none;
+    transition:opacity 0.35s ease;
+  }
+  .drawer-backdrop.open { opacity:1; pointer-events:auto; }
+
+  .drawer-panel {
+    position:fixed; top:0; right:0; bottom:0; z-index:170;
+    width:min(360px, 85vw);
+    background:linear-gradient(180deg, #0d5c30 0%, #042e18 100%);
+    border-left:3px solid var(--gold-dim);
+    box-shadow:-8px 0 40px rgba(0,0,0,0.5);
+    transform:translateX(100%);
+    transition:transform 0.38s cubic-bezier(0.32,0.72,0,1);
+    display:flex; flex-direction:column;
+    overflow:hidden;
+  }
+  .drawer-panel.open { transform:translateX(0); }
+
+  .drawer-header {
+    padding:20px 20px 14px;
+    border-bottom:1px solid rgba(212,168,67,0.15);
+    display:flex; align-items:center; justify-content:space-between;
+    flex-shrink:0;
+  }
+  .drawer-header-title {
+    font-family:'Playfair Display',serif; font-weight:900;
+    font-size:1rem; color:var(--gold);
+    letter-spacing:0.1em; text-transform:uppercase;
+  }
+  .drawer-close {
+    width:32px; height:32px; border-radius:8px;
+    background:rgba(0,0,0,0.3); border:1.5px solid rgba(212,168,67,0.25);
+    color:var(--cream); font-size:1.1rem;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; transition:all 0.15s;
+  }
+  .drawer-close:hover { border-color:var(--gold); color:var(--gold); }
+
+  .drawer-body {
+    flex:1; overflow-y:auto; padding:8px 16px 30px;
+    -webkit-overflow-scrolling:touch;
+  }
+  .drawer-body::-webkit-scrollbar { width:4px; }
+  .drawer-body::-webkit-scrollbar-thumb { background:var(--gold-dim); border-radius:2px; }
+
+  .hand-row {
+    display:flex; align-items:center; gap:10px;
+    padding:10px 6px;
+    border-bottom:1px solid rgba(255,255,255,0.06);
+    opacity:0; transform:translateX(20px);
+    transition:opacity 0.3s ease, transform 0.3s ease;
+  }
+  .hand-row.show { opacity:1; transform:translateX(0); }
+
+  .hand-badge {
+    width:26px; height:26px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'JetBrains Mono',monospace; font-size:0.65rem; font-weight:700;
+    flex-shrink:0;
+  }
+  .hand-badge.top { background:linear-gradient(135deg,#d4a843,#f0c95c); color:#1a1a1a; border:1.5px solid rgba(212,168,67,0.4); }
+  .hand-badge.high { background:rgba(212,168,67,0.2); color:#f0c95c; border:1.5px solid rgba(212,168,67,0.4); }
+  .hand-badge.normal { background:rgba(255,255,255,0.06); color:#ddd4c2; border:1.5px solid rgba(255,255,255,0.08); }
+
+  .hand-info { flex:1; min-width:0; }
+  .hand-name { font-family:'Georgia',serif; font-weight:700; font-size:0.82rem; line-height:1.2; }
+  .hand-name.gold { color:var(--gold-bright); }
+  .hand-desc { font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:var(--cream); opacity:0.5; margin-top:2px; line-height:1.3; }
+
+  .mini-cards { display:flex; gap:2px; flex-shrink:0; }
+  .mini-card {
+    width:28px; height:40px; border-radius:4px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    font-family:'Georgia',serif; line-height:1;
+    box-shadow:0 1px 3px rgba(0,0,0,0.15);
+    flex-shrink:0;
+  }
+  .mini-card-face { background:linear-gradient(145deg,#f5f0e8,#e0d8c8); border:1.5px solid rgba(0,0,0,0.12); }
+  .mini-card .rank { font-size:11px; font-weight:800; }
+  .mini-card .suit { font-size:10px; line-height:1; margin-top:-1px; }
+  .suit-black { color:#1a1a2e; }
+  .suit-red { color:#c0392b; }
+
+  /* Settings */
+  .settings-section { background:rgba(0,0,0,0.35); border:1px solid rgba(212,168,67,0.2); border-radius:14px; padding:18px 20px; width:100%; }
+  .settings-title { font-family:'Playfair Display',serif; font-weight:700; font-size:1rem; color:var(--gold); margin-bottom:14px; }
+  .field-row { display:flex; align-items:center; gap:12px; margin-bottom:10px; flex-wrap:wrap; }
+  .field-label { font-family:'JetBrains Mono',monospace; font-size:0.68rem; color:var(--cream); opacity:0.7; min-width:100px; }
+  .level-table { width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:0.65rem; }
+  .level-table th { text-align:center; color:var(--gold); font-weight:600; padding:4px; font-size:0.55rem; letter-spacing:0.1em; border-bottom:1px solid rgba(212,168,67,0.2); }
+  .level-table td { padding:3px; text-align:center; }
+</style>
+</head>
+<body>
+
+<div class="bg"></div>
+<div class="rail"></div>
+<div class="flash" id="flash"></div>
+
+<div class="container">
+  <!-- LOBBY -->
+  <div class="view active" id="lobbyView">
+    <div class="title">♠ Poker Night ♠</div>
+    <div class="subtitle">Shared Blind Timer</div>
+    <div class="card-box" style="margin-top:8px">
+      <div class="label" style="margin-bottom:10px">Your Name</div>
+      <input class="input" id="playerNameInput" placeholder="Enter your name" maxlength="20" style="font-size:0.95rem">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:12px;margin-top:18px">
+        <button class="btn btn-primary" style="width:100%;font-size:0.9rem;padding:14px" onclick="hostRoom()">♠ Create Room</button>
+        <div class="label" style="opacity:0.35;letter-spacing:0.5em;margin:4px 0">— or —</div>
+        <div class="label" style="margin-bottom:4px">Join with Code</div>
+        <input class="input" id="joinCodeInput" placeholder="ABCDE" maxlength="5" style="letter-spacing:0.35em;font-size:1.3rem" oninput="this.value=this.value.toUpperCase()">
+        <button class="btn" style="width:100%;margin-top:4px" onclick="joinRoom()">Join Room</button>
+        <div id="lobbyError" class="mono" style="font-size:0.72rem;color:var(--red);text-align:center;display:none"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TIMER -->
+  <div class="view" id="timerView">
+    <div class="title">♠ Poker Night ♠</div>
+    <div class="room-badge">
+      <span class="label">Room</span>
+      <span class="room-code" id="roomCodeDisplay"></span>
+      <span class="mono" style="font-size:0.6rem;color:var(--cream);opacity:0.5" id="playerCount"></span>
+    </div>
+    <div id="levelArea" style="text-align:center">
+      <div class="label">Level</div>
+      <div style="font-weight:900;font-size:1.4rem;color:var(--gold-bright)" id="levelNum">1</div>
+    </div>
+    <div class="card-box">
+      <div class="label" style="margin-bottom:6px" id="blindsLabel">Blinds</div>
+      <div class="blinds-value" id="blindsValue">25<span class="sep">/</span>50</div>
+    </div>
+    <div class="timer-wrap">
+      <svg class="timer-ring" viewBox="0 0 200 200">
+        <circle class="ring-bg" cx="100" cy="100" r="88"/>
+        <circle class="ring-fg" id="ringFg" cx="100" cy="100" r="88"/>
+      </svg>
+      <div class="timer-text" id="timerText">15:00</div>
+    </div>
+    <div class="next-hint" id="nextHint">Next: 50 / 100</div>
+    <div class="controls" id="hostControls">
+      <button class="btn btn-primary" id="startBtn" onclick="toggleTimer()">Start</button>
+      <button class="btn" onclick="skipLevel()">Skip ▸</button>
+      <button class="btn" onclick="showSettings()">⚙</button>
+      <button class="btn btn-danger" onclick="resetTimer()">Reset</button>
+    </div>
+    <div id="guestMsg" class="mono" style="font-size:0.65rem;color:var(--cream);opacity:0.4;display:none">Host controls the timer</div>
+    <button class="sched-toggle" onclick="toggleSchedule()">▾ Full Schedule</button>
+    <div id="scheduleBox" class="card-box" style="display:none;padding:12px 14px;max-height:180px;overflow-y:auto"></div>
+    <div class="players-info" id="playersInfo"></div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div class="view" id="settingsView">
+    <div class="title">⚙ Settings</div>
+    <div class="settings-section" style="max-height:55vh;overflow-y:auto">
+      <div class="settings-title">Blind Schedule</div>
+      <table class="level-table"><thead><tr><th>#</th><th>SB</th><th>BB</th><th>Min</th><th></th></tr></thead>
+      <tbody id="settingsLevelBody"></tbody></table>
+      <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
+        <button class="btn" style="font-size:0.6rem;padding:6px 12px" onclick="addSettingsLevel(false)">+ Level</button>
+        <button class="btn" style="font-size:0.6rem;padding:6px 12px" onclick="addSettingsLevel(true)">+ Break</button>
+      </div>
+    </div>
+    <div class="controls">
+      <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+      <button class="btn" onclick="cancelSettings()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- HAND RANKINGS DRAWER -->
+<div class="drawer-tab" id="drawerTab" onclick="openDrawer()" style="display:none">
+  <span class="tab-icon">🃏</span>HANDS
+</div>
+<div class="drawer-backdrop" id="drawerBackdrop" onclick="closeDrawer()"></div>
+<div class="drawer-panel" id="drawerPanel">
+  <div class="drawer-header">
+    <div class="drawer-header-title">Hand Rankings</div>
+    <div class="drawer-close" onclick="closeDrawer()">✕</div>
+  </div>
+  <div class="drawer-body" id="drawerBody"></div>
+</div>
+
+<script>
+// ─── DATA ───
+const DEFAULT_LEVELS = [
+  {sb:25,bb:50,mins:15},{sb:50,bb:100,mins:15},{sb:75,bb:150,mins:15},{sb:100,bb:200,mins:15},
+  {isBreak:true,mins:5},
+  {sb:150,bb:300,mins:15},{sb:200,bb:400,mins:15},{sb:300,bb:600,mins:15},{sb:500,bb:1000,mins:15},
+];
+
+const HANDS = [
+  {rank:1,name:"Royal Flush",desc:"A, K, Q, J, 10 — same suit",cards:[["A","s"],["K","s"],["Q","s"],["J","s"],["T","s"]]},
+  {rank:2,name:"Straight Flush",desc:"Five in sequence, same suit",cards:[["9","h"],["8","h"],["7","h"],["6","h"],["5","h"]]},
+  {rank:3,name:"Four of a Kind",desc:"Four cards of same rank",cards:[["K","s"],["K","h"],["K","d"],["K","c"],["2","s"]]},
+  {rank:4,name:"Full House",desc:"Three of a kind + a pair",cards:[["Q","s"],["Q","h"],["Q","d"],["8","c"],["8","s"]]},
+  {rank:5,name:"Flush",desc:"Any five cards, same suit",cards:[["A","d"],["J","d"],["8","d"],["5","d"],["3","d"]]},
+  {rank:6,name:"Straight",desc:"Five in sequence, mixed suits",cards:[["T","s"],["9","h"],["8","d"],["7","c"],["6","s"]]},
+  {rank:7,name:"Three of a Kind",desc:"Three cards of same rank",cards:[["7","s"],["7","h"],["7","d"],["K","c"],["3","s"]]},
+  {rank:8,name:"Two Pair",desc:"Two different pairs",cards:[["J","s"],["J","h"],["4","d"],["4","c"],["A","s"]]},
+  {rank:9,name:"One Pair",desc:"Two cards of same rank",cards:[["T","s"],["T","h"],["K","d"],["6","c"],["3","s"]]},
+  {rank:10,name:"High Card",desc:"No combination — highest card plays",cards:[["A","s"],["J","h"],["8","d"],["5","c"],["2","s"]]},
+];
+
+const SUIT_MAP = {
+  s:{sym:"♠",cls:"suit-black"},
+  c:{sym:"♣",cls:"suit-black"},
+  h:{sym:"♥",cls:"suit-red"},
+  d:{sym:"♦",cls:"suit-red"},
+};
+
+// ─── STATE ───
+let roomCode="", isHost=false, playerName="", gameState=null;
+let pollInterval=null, tickInterval=null, prevLevelIdx=null;
+let editLevels=[];
+const C=2*Math.PI*88;
+const ring=document.getElementById('ringFg');
+ring.style.strokeDasharray=C; ring.style.strokeDashoffset=0;
+
+// ─── AUDIO ───
+let audioCtx=null;
+function ensureAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();if(audioCtx.state==='suspended')audioCtx.resume();}
+function beep(f,d,v=0.3){try{ensureAudio();const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='sine';o.frequency.value=f;g.gain.setValueAtTime(v,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+d/1000);o.connect(g);g.connect(audioCtx.destination);o.start();o.stop(audioCtx.currentTime+d/1000);}catch(e){}}
+function fanfare(){[523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,400,0.3),i*150));setTimeout(()=>[1047,1319,1568].forEach(f=>beep(f,1000,0.3)),600);}
+
+function fmt(s){if(s<0)s=0;return `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`;}
+function genCode(){const c="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";let r="";for(let i=0;i<5;i++)r+=c[Math.floor(Math.random()*c.length)];return r;}
+
+// ─── VIEWS ───
+function showView(id){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));document.getElementById(id).classList.add('active');
+  document.getElementById('drawerTab').style.display=id==='timerView'?'block':'none';
+}
+
+// ─── LOBBY ───
+function lobbyError(msg){const e=document.getElementById('lobbyError');e.textContent=msg;e.style.display='block';}
+
+async function hostRoom(){
+  const name=document.getElementById('playerNameInput').value.trim()||"Host";
+  const code=genCode();
+  const initial={levels:DEFAULT_LEVELS,currentLevelIdx:0,levelDuration:DEFAULT_LEVELS[0].mins*60,remaining:DEFAULT_LEVELS[0].mins*60,isRunning:false,finished:false,startedAt:null,warnTime:30};
+  try{await window.storage.set(`poker-room:${code}`,JSON.stringify(initial),true);}catch(e){lobbyError("Failed to create room");return;}
+  roomCode=code;isHost=true;playerName=name;
+  enterRoom();
+}
+
+async function joinRoom(){
+  const code=document.getElementById('joinCodeInput').value.trim().toUpperCase();
+  if(!code){lobbyError("Enter a room code");return;}
+  try{const r=await window.storage.get(`poker-room:${code}`,true);if(!r)throw 0;
+  }catch(e){lobbyError("Room not found. Check the code.");return;}
+  roomCode=code;isHost=false;playerName=document.getElementById('playerNameInput').value.trim()||"Player";
+  enterRoom();
+}
+
+async function enterRoom(){
+  // register player
+  try{const pk=`poker-players:${roomCode}`;let ex=[];try{const r=await window.storage.get(pk,true);if(r)ex=JSON.parse(r.value);}catch(e){}
+  ex=ex.filter(p=>p.name!==playerName);ex.push({name:playerName,joinedAt:Date.now()});
+  await window.storage.set(pk,JSON.stringify(ex),true);}catch(e){}
+  document.getElementById('roomCodeDisplay').textContent=roomCode;
+  document.getElementById('hostControls').style.display=isHost?'flex':'none';
+  document.getElementById('guestMsg').style.display=isHost?'none':'block';
+  showView('timerView');
+  buildDrawer();
+  pollState();
+  pollInterval=setInterval(pollState,2000);
+}
+
+// ─── POLL ───
+async function pollState(){
+  try{const r=await window.storage.get(`poker-room:${roomCode}`,true);if(r){gameState=JSON.parse(r.value);updateTimerUI();}
+  const pr=await window.storage.get(`poker-players:${roomCode}`,true);if(pr){const pl=JSON.parse(pr.value);document.getElementById('playerCount').textContent=pl.length+' joined';document.getElementById('playersInfo').textContent=pl.map(p=>p.name).join(' · ');}
+  }catch(e){}}
+
+function updateTimerUI(){
+  if(!gameState)return;
+  const lv=gameState.levels[gameState.currentLevelIdx];
+  const isBreak=lv&&lv.isBreak;
+  const la=document.getElementById('levelArea');
+  if(isBreak){la.innerHTML='<div class="break-pulse" style="font-weight:700;font-size:1.3rem;color:var(--gold-bright)">☕ Break</div>';
+    document.getElementById('blindsLabel').textContent='Take a breather';document.getElementById('blindsValue').textContent='—';
+  }else{
+    const dn=gameState.levels.slice(0,gameState.currentLevelIdx+1).filter(l=>!l.isBreak).length;
+    la.innerHTML=`<div class="label">Level</div><div style="font-weight:900;font-size:1.4rem;color:var(--gold-bright)">${dn}</div>`;
+    document.getElementById('blindsLabel').textContent='Blinds';
+    document.getElementById('blindsValue').innerHTML=`${lv.sb.toLocaleString()}<span class="sep">/</span>${lv.bb.toLocaleString()}`;
+  }
+  const rem=gameState.isRunning?Math.max(0,gameState.levelDuration-Math.floor((Date.now()-gameState.startedAt)/1000)):gameState.remaining;
+  const total=lv?lv.mins*60:1;
+  document.getElementById('timerText').textContent=gameState.finished?'DONE':fmt(rem);
+  const frac=Math.max(0,Math.min(1,rem/total));
+  ring.style.strokeDashoffset=C*(1-frac);
+  ring.classList.toggle('warning',rem<=30&&rem>0);
+
+  const ni=gameState.currentLevelIdx+1;
+  const nh=document.getElementById('nextHint');
+  if(ni<gameState.levels.length){const n=gameState.levels[ni];nh.textContent=n.isBreak?`Next: Break (${n.mins} min)`:`Next: ${n.sb.toLocaleString()} / ${n.bb.toLocaleString()}`;}else{nh.textContent='Final Level';}
+
+  if(prevLevelIdx!==null&&prevLevelIdx!==gameState.currentLevelIdx&&gameState.currentLevelIdx>0){
+    document.getElementById('flash').classList.add('active');fanfare();setTimeout(()=>document.getElementById('flash').classList.remove('active'),350);
+  }
+  prevLevelIdx=gameState.currentLevelIdx;
+
+  if(isHost){const sb=document.getElementById('startBtn');sb.textContent=gameState.isRunning?'Pause':gameState.remaining<gameState.levels[gameState.currentLevelIdx].mins*60?'Resume':'Start';}
+}
+
+// ─── HOST CONTROLS ───
+async function writeState(fn){
+  try{const r=await window.storage.get(`poker-room:${roomCode}`,true);if(!r)return;const d=JSON.parse(r.value);fn(d);
+  await window.storage.set(`poker-room:${roomCode}`,JSON.stringify(d),true);gameState=d;updateTimerUI();}catch(e){}}
+
+function toggleTimer(){ensureAudio();writeState(d=>{
+  if(d.isRunning){d.isRunning=false;d.remaining=Math.max(0,d.levelDuration-Math.floor((Date.now()-d.startedAt)/1000));}
+  else{d.isRunning=true;d.startedAt=Date.now();d.levelDuration=d.remaining;d.finished=false;}
+});
+  // start/stop local tick
+  clearInterval(tickInterval);
+  if(gameState&&gameState.isRunning){tickInterval=setInterval(hostTick,1000);}
+}
+
+async function hostTick(){
+  try{const r=await window.storage.get(`poker-room:${roomCode}`,true);if(!r)return;const d=JSON.parse(r.value);if(!d.isRunning)return;
+  const el=Math.floor((Date.now()-d.startedAt)/1000);const rem=d.levelDuration-el;
+  if(rem<=0){const ni=d.currentLevelIdx+1;if(ni>=d.levels.length){d.isRunning=false;d.remaining=0;d.finished=true;}
+  else{d.currentLevelIdx=ni;d.levelDuration=d.levels[ni].mins*60;d.startedAt=Date.now();d.remaining=d.levelDuration;}}
+  else{d.remaining=rem;if(rem===d.warnTime)beep(600,150,0.3);if(rem===10&&d.warnTime>10)beep(800,100,0.3);}
+  await window.storage.set(`poker-room:${roomCode}`,JSON.stringify(d),true);gameState=d;updateTimerUI();
+  if(d.finished||!d.isRunning)clearInterval(tickInterval);
+  }catch(e){}}
+
+function skipLevel(){ensureAudio();writeState(d=>{const n=d.currentLevelIdx+1;if(n>=d.levels.length)return;d.currentLevelIdx=n;d.levelDuration=d.levels[n].mins*60;d.remaining=d.levelDuration;d.startedAt=Date.now();});}
+function resetTimer(){clearInterval(tickInterval);writeState(d=>{d.currentLevelIdx=0;d.levelDuration=d.levels[0].mins*60;d.remaining=d.levelDuration;d.isRunning=false;d.finished=false;});}
+
+function toggleSchedule(){const b=document.getElementById('scheduleBox');if(b.style.display==='none'){b.style.display='block';renderSchedule();}else{b.style.display='none';}}
+function renderSchedule(){if(!gameState)return;let h='<table class="sched-table"><tr><th>Lvl</th><th>SB</th><th>BB</th><th>Time</th></tr>';let n=0;
+gameState.levels.forEach((l,i)=>{const past=i<gameState.currentLevelIdx,act=i===gameState.currentLevelIdx;let st=`color:${act?'var(--gold-bright)':'var(--cream)'};opacity:${past?'0.3':act?'1':'0.7'};font-weight:${act?'700':'400'};${past?'text-decoration:line-through;':''}${l.isBreak?'font-style:italic;':''}`;
+if(!l.isBreak)n++;h+=`<tr style="${st}"><td>${l.isBreak?'☕':n}</td>${l.isBreak?`<td colspan="2">Break</td>`:`<td>${l.sb}</td><td>${l.bb}</td>`}<td>${l.mins}m</td></tr>`;});
+document.getElementById('scheduleBox').innerHTML=h+'</table>';}
+
+// ─── SETTINGS ───
+function showSettings(){if(!isHost||!gameState)return;clearInterval(tickInterval);editLevels=gameState.levels.map(l=>({...l}));renderSettingsTable();showView('settingsView');}
+function cancelSettings(){showView('timerView');if(gameState&&gameState.isRunning)tickInterval=setInterval(hostTick,1000);}
+function saveSettings(){readSettingsInputs();writeState(d=>{d.levels=editLevels;d.currentLevelIdx=0;d.levelDuration=editLevels[0].mins*60;d.remaining=d.levelDuration;d.isRunning=false;d.finished=false;});showView('timerView');}
+
+function renderSettingsTable(){
+  const tb=document.getElementById('settingsLevelBody');let h='',n=0;
+  editLevels.forEach((lv,i)=>{
+    if(!lv.isBreak)n++;
+    if(lv.isBreak){h+=`<tr data-brk="1"><td style="color:var(--gold);font-style:italic;font-size:0.65rem">☕</td><td colspan="2" style="color:var(--gold);font-style:italic;font-size:0.65rem">Break</td><td><input class="input-sm mins-in" type="number" min="1" max="60" value="${lv.mins}" style="width:48px"></td><td><div style="display:flex;gap:2px;justify-content:center"><button class="btn btn-sm" onclick="moveSet(${i},-1)">↑</button><button class="btn btn-sm" onclick="moveSet(${i},1)">↓</button><button class="btn btn-sm btn-danger" onclick="removeSet(${i})">×</button></div></td></tr>`;}
+    else{h+=`<tr data-brk="0"><td style="color:var(--cream);opacity:0.5;font-size:0.65rem">${n}</td><td><input class="input-sm sb-in" type="number" min="1" value="${lv.sb}"></td><td><input class="input-sm bb-in" type="number" min="1" value="${lv.bb}"></td><td><input class="input-sm mins-in" type="number" min="1" max="60" value="${lv.mins}" style="width:48px"></td><td><div style="display:flex;gap:2px;justify-content:center"><button class="btn btn-sm" onclick="moveSet(${i},-1)">↑</button><button class="btn btn-sm" onclick="moveSet(${i},1)">↓</button><button class="btn btn-sm btn-danger" onclick="removeSet(${i})">×</button></div></td></tr>`;}
+  });
+  tb.innerHTML=h;
+}
+function readSettingsInputs(){editLevels=[];document.querySelectorAll('#settingsLevelBody tr').forEach(row=>{
+  const isB=row.dataset.brk==='1';const mins=parseInt(row.querySelector('.mins-in').value)||5;
+  if(isB){editLevels.push({isBreak:true,mins});}else{editLevels.push({sb:parseInt(row.querySelector('.sb-in').value)||25,bb:parseInt(row.querySelector('.bb-in').value)||50,mins});}});}
+function addSettingsLevel(isB){readSettingsInputs();if(isB){editLevels.push({isBreak:true,mins:5});}else{const last=[...editLevels].reverse().find(l=>!l.isBreak);const sb=last?last.bb:25;editLevels.push({sb,bb:sb*2,mins:15});}renderSettingsTable();}
+function removeSet(i){readSettingsInputs();if(editLevels.length<=1)return;editLevels.splice(i,1);renderSettingsTable();}
+function moveSet(i,d){readSettingsInputs();const t=i+d;if(t<0||t>=editLevels.length)return;[editLevels[i],editLevels[t]]=[editLevels[t],editLevels[i]];renderSettingsTable();}
+
+// ─── HAND RANKINGS DRAWER ───
+let drawerOpen=false;
+function buildDrawer(){
+  let h='';
+  HANDS.forEach((hand,idx)=>{
+    const bcls=hand.rank===1?'top':hand.rank<=3?'high':'normal';
+    let cards='';
+    hand.cards.forEach(([r,s])=>{const si=SUIT_MAP[s];cards+=`<div class="mini-card mini-card-face ${si.cls}"><span class="rank">${r}</span><span class="suit">${si.sym}</span></div>`;});
+    h+=`<div class="hand-row" style="transition-delay:${idx*0.04}s"><div class="hand-badge ${bcls}">${hand.rank}</div><div class="hand-info"><div class="hand-name${hand.rank<=3?' gold':''}">${hand.name}</div><div class="hand-desc">${hand.desc}</div></div><div class="mini-cards">${cards}</div></div>`;
+  });
+  document.getElementById('drawerBody').innerHTML=h;
+}
+
+function openDrawer(){
+  drawerOpen=true;
+  document.getElementById('drawerBackdrop').classList.add('open');
+  document.getElementById('drawerPanel').classList.add('open');
+  document.getElementById('drawerTab').style.display='none';
+  // stagger animate rows
+  setTimeout(()=>{document.querySelectorAll('.hand-row').forEach(r=>r.classList.add('show'));},50);
+}
+function closeDrawer(){
+  drawerOpen=false;
+  document.querySelectorAll('.hand-row').forEach(r=>r.classList.remove('show'));
+  document.getElementById('drawerPanel').classList.remove('open');
+  document.getElementById('drawerBackdrop').classList.remove('open');
+  setTimeout(()=>{document.getElementById('drawerTab').style.display='block';},400);
+}
+
+// Touch swipe support for drawer
+let touchStartX=0,touchCurrentX=0,dragging=false;
+document.getElementById('drawerPanel').addEventListener('touchstart',e=>{touchStartX=e.touches[0].clientX;dragging=true;},{passive:true});
+document.getElementById('drawerPanel').addEventListener('touchmove',e=>{if(!dragging)return;touchCurrentX=e.touches[0].clientX;const dx=touchCurrentX-touchStartX;if(dx>0)document.getElementById('drawerPanel').style.transform=`translateX(${dx}px)`;},{passive:true});
+document.getElementById('drawerPanel').addEventListener('touchend',()=>{if(!dragging)return;dragging=false;const dx=touchCurrentX-touchStartX;document.getElementById('drawerPanel').style.transform='';if(dx>80)closeDrawer();});
+
+// Edge swipe to open
+document.addEventListener('touchstart',e=>{if(drawerOpen)return;const x=e.touches[0].clientX;if(x>window.innerWidth-30){touchStartX=x;dragging=true;}},{passive:true});
+document.addEventListener('touchmove',e=>{if(!dragging||drawerOpen)return;touchCurrentX=e.touches[0].clientX;},{passive:true});
+document.addEventListener('touchend',()=>{if(drawerOpen||!dragging)return;dragging=false;const dx=touchStartX-touchCurrentX;if(dx>60&&document.getElementById('timerView').classList.contains('active'))openDrawer();});
+</script>
+</body>
+</html>
